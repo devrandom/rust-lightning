@@ -420,7 +420,8 @@ impl<ChanSigner: ChannelKeys> Channel<ChanSigner> {
 
 	// Constructors:
 	pub fn new_outbound(fee_estimator: &FeeEstimator, keys_provider: &Arc<KeysInterface<ChanKeySigner = ChanSigner>>, their_node_id: PublicKey, channel_value_satoshis: u64, push_msat: u64, user_id: u64, logger: Arc<Logger>, config: &UserConfig) -> Result<Channel<ChanSigner>, APIError> {
-		let chan_keys = keys_provider.get_channel_keys(false, channel_value_satoshis);
+		let channel_id = keys_provider.get_channel_id();
+		let chan_keys = keys_provider.get_channel_keys(channel_id, false, channel_value_satoshis);
 
 		if channel_value_satoshis >= MAX_FUNDING_SATOSHIS {
 			return Err(APIError::APIMisuseError{err: "funding value > 2^24"});
@@ -451,7 +452,7 @@ impl<ChanSigner: ChannelKeys> Channel<ChanSigner> {
 			user_id: user_id,
 			config: config.channel_options.clone(),
 
-			channel_id: keys_provider.get_channel_id(),
+			channel_id: channel_id,
 			channel_state: ChannelState::OurInitSent as u32,
 			channel_outbound: true,
 			secp_ctx: secp_ctx,
@@ -533,7 +534,7 @@ impl<ChanSigner: ChannelKeys> Channel<ChanSigner> {
 	/// Creates a new channel from a remote sides' request for one.
 	/// Assumes chain_hash has already been checked and corresponds with what we expect!
 	pub fn new_from_req(fee_estimator: &FeeEstimator, keys_provider: &Arc<KeysInterface<ChanKeySigner = ChanSigner>>, their_node_id: PublicKey, their_features: InitFeatures, msg: &msgs::OpenChannel, user_id: u64, logger: Arc<Logger>, config: &UserConfig) -> Result<Channel<ChanSigner>, ChannelError<ChanSigner>> {
-		let mut chan_keys = keys_provider.get_channel_keys(true, msg.funding_satoshis);
+		let mut chan_keys = keys_provider.get_channel_keys(msg.temporary_channel_id, true, msg.funding_satoshis);
 		let their_pubkeys = ChannelPublicKeys {
 			funding_pubkey: msg.funding_pubkey,
 			revocation_basepoint: msg.revocation_basepoint,
@@ -4102,7 +4103,7 @@ mod tests {
 			PublicKey::from_secret_key(&secp_ctx, &channel_close_key)
 		}
 
-		fn get_channel_keys(&self, _inbound: bool, _channel_value_satoshis: u64) -> InMemoryChannelKeys {
+		fn get_channel_keys(&self, _channel_id: [u8; 32], _inbound: bool, _channel_value_satoshis: u64) -> InMemoryChannelKeys {
 			self.chan_keys.clone()
 		}
 		fn get_onion_rand(&self) -> (SecretKey, [u8; 32]) { panic!(); }

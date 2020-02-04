@@ -101,7 +101,7 @@ pub trait KeysInterface: Send + Sync {
 	fn get_shutdown_pubkey(&self) -> PublicKey;
 	/// Get a new set of ChannelKeys for per-channel secrets. These MUST be unique even if you
 	/// restarted with some stale data!
-	fn get_channel_keys(&self, inbound: bool, channel_value_satoshis: u64) -> Self::ChanKeySigner;
+	fn get_channel_keys(&self, channel_id: [u8; 32], inbound: bool, channel_value_satoshis: u64) -> Self::ChanKeySigner;
 	/// Get a secret and PRNG seed for construting an onion packet
 	fn get_onion_rand(&self) -> (SecretKey, [u8; 32]);
 	/// Get a unique temporary channel id. Channels will be referred to by this until the funding
@@ -465,7 +465,7 @@ impl KeysInterface for KeysManager {
 		self.shutdown_pubkey.clone()
 	}
 
-	fn get_channel_keys(&self, _inbound: bool, channel_value_satoshis: u64) -> InMemoryChannelKeys {
+	fn get_channel_keys(&self, _channel_id: [u8; 32], _inbound: bool, channel_value_satoshis: u64) -> InMemoryChannelKeys {
 		// We only seriously intend to rely on the channel_master_key for true secure
 		// entropy, everything else just ensures uniqueness. We rely on the unique_start (ie
 		// starting_time provided in the constructor) to be unique.
