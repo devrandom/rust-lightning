@@ -206,6 +206,8 @@ pub trait ChannelKeys : Send+Clone {
 	fn commitment_seed<'a>(&'a self) -> &'a [u8; 32];
 	/// Gets the local channel public keys and basepoints
 	fn pubkeys<'a>(&'a self) -> &'a ChannelPublicKeys;
+	/// Gets the remote channel public keys and basepoints
+	fn remote_pubkeys<'a>(&'a self) -> &'a Option<ChannelPublicKeys>;
 
 	/// Create a signature for a remote commitment transaction and associated HTLC transactions.
 	///
@@ -342,7 +344,8 @@ impl ChannelKeys for InMemoryChannelKeys {
 	fn delayed_payment_base_key(&self) -> &SecretKey { &self.delayed_payment_base_key }
 	fn htlc_base_key(&self) -> &SecretKey { &self.htlc_base_key }
 	fn commitment_seed(&self) -> &[u8; 32] { &self.commitment_seed }
-	fn pubkeys<'a>(&'a self) -> &'a ChannelPublicKeys { &self.local_channel_pubkeys }
+	fn pubkeys(&self) -> &ChannelPublicKeys { &self.local_channel_pubkeys }
+	fn remote_pubkeys(&self) -> &Option<ChannelPublicKeys> { &self.remote_channel_pubkeys }
 
 	fn sign_remote_commitment<T: secp256k1::Signing + secp256k1::Verification>(&self, feerate_per_kw: u64, commitment_tx: &Transaction, keys: &TxCreationKeys, htlcs: &[&HTLCOutputInCommitment], to_self_delay: u16, secp_ctx: &Secp256k1<T>) -> Result<(Signature, Vec<Signature>), ()> {
 		if commitment_tx.input.len() != 1 { return Err(()); }
