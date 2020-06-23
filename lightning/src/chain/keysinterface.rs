@@ -404,7 +404,9 @@ impl InMemoryChannelKeys {
 		}
 	}
 
-	fn remote_pubkeys<'a>(&'a self) -> &'a ChannelPublicKeys { self.remote_channel_pubkeys.as_ref().unwrap() }
+	/// Remote pubkeys
+	/// Will panic if the remote pubkeys were not set with set_remote_channel_pubkeys
+	pub fn remote_pubkeys<'a>(&'a self) -> &'a ChannelPublicKeys { self.remote_channel_pubkeys.as_ref().unwrap() }
 }
 
 impl ChannelKeys for InMemoryChannelKeys {
