@@ -394,7 +394,8 @@ pub struct UnsignedNodeAnnouncement {
 /// A node_announcement message to be sent or received from a peer
 pub struct NodeAnnouncement {
 	pub(crate) signature: Signature,
-	pub(crate) contents: UnsignedNodeAnnouncement,
+	/// The actual node announcement
+	pub        contents: UnsignedNodeAnnouncement,
 }
 
 // Only exposed as broadcast of channel_announcement should be filtered by node_id
@@ -403,7 +404,8 @@ pub struct NodeAnnouncement {
 pub struct UnsignedChannelAnnouncement {
 	pub(crate) features: ChannelFeatures,
 	pub(crate) chain_hash: BlockHash,
-	pub(crate) short_channel_id: u64,
+	/// Short channel ID
+	pub        short_channel_id: u64,
 	/// One of the two node_ids which are endpoints of this channel
 	pub        node_id_1: PublicKey,
 	/// The other of the two node_ids which are endpoints of this channel
@@ -419,7 +421,8 @@ pub struct ChannelAnnouncement {
 	pub(crate) node_signature_2: Signature,
 	pub(crate) bitcoin_signature_1: Signature,
 	pub(crate) bitcoin_signature_2: Signature,
-	pub(crate) contents: UnsignedChannelAnnouncement,
+	/// The actual channel announcement
+	pub        contents: UnsignedChannelAnnouncement,
 }
 
 #[derive(PartialEq, Clone, Debug)]
