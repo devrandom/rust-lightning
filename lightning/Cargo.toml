@@ -18,6 +18,7 @@ max_level_error = []
 max_level_warn = []
 max_level_info = []
 max_level_debug = []
+unsafe = []
 
 [dependencies]
 bitcoin = "0.23"
