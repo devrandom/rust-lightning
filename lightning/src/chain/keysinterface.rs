@@ -195,9 +195,12 @@ impl Readable for SpendableOutputDescriptor {
 // TODO: We should remove Clone by instead requesting a new ChannelKeys copy when we create
 // ChannelMonitors instead of expecting to clone the one out of the Channel into the monitors.
 pub trait ChannelKeys : Send+Clone {
-	/// Gets the commitment seed for a specific commitment number
+	/// Gets the per-commitment point for a specific commitment number
 	/// Note that the commitment number starts at (1 << 48) - 1 and counts backwards
-	fn commitment_secret(&self, idx: u64) -> [u8; 32];
+	fn get_per_commitment_point<T: secp256k1::Signing + secp256k1::Verification>(&self, idx: u64, secp_ctx: &Secp256k1<T>) -> PublicKey;
+	/// Gets the commitment seed for a specific commitment number, thereby revoking the commitment
+	/// Note that the commitment number starts at (1 << 48) - 1 and counts backwards
+	fn revoke_commitment(&self, idx: u64) -> [u8; 32];
 	/// Gets the local channel public keys and basepoints
 	fn pubkeys(&self) -> &ChannelPublicKeys;
 	/// Gets arbitrary identifiers describing the set of keys which are provided back to you in
@@ -405,7 +408,12 @@ impl InMemoryChannelKeys {
 }
 
 impl ChannelKeys for InMemoryChannelKeys {
-	fn commitment_secret(&self, idx: u64) -> [u8; 32] {
+	fn get_per_commitment_point<T: secp256k1::Signing + secp256k1::Verification>(&self, idx: u64, secp_ctx: &Secp256k1<T>) -> PublicKey {
+		let commitment_secret = SecretKey::from_slice(&chan_utils::build_commitment_secret(&self.commitment_seed, idx)).unwrap();
+		PublicKey::from_secret_key(secp_ctx, &commitment_secret)
+	}
+
+	fn revoke_commitment(&self, idx: u64) -> [u8; 32] {
 		chan_utils::build_commitment_secret(&self.commitment_seed, idx)
 	}
 
