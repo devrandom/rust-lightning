@@ -36,10 +36,11 @@ mod test_utils;
 #[cfg(any(feature = "rest-client", feature = "rpc-client"))]
 mod utils;
 
-use crate::poll::{ChainTip, Poll, ValidatedBlockHeader};
+use crate::poll::{ChainTip, Poll, Validate, ValidatedBlockHeader};
 
 use bitcoin::blockdata::block::{Block, BlockHeader};
 use bitcoin::hash_types::BlockHash;
+use bitcoin::network::constants::Network;
 use bitcoin::util::uint::Uint256;
 
 use std::future::Future;
@@ -166,6 +167,32 @@ pub trait ChainListener {
 
 	/// Notifies the listener that a block was removed at the given height.
 	fn block_disconnected(&mut self, header: &BlockHeader, height: u32);
+}
+
+/// Do a one-time sync of a chain listener from a single *trusted* block source bringing its view
+/// of the latest chain tip from old_block to new_block. This is useful on startup when you need
+/// to bring each ChannelMonitor, as well as the overall ChannelManager, into sync with each other.
+///
+/// Once you have them all at the same block, you should switch to using MicroSPVClient.
+pub async fn init_sync_listener<CL: ChainListener, B: BlockSource>(
+	new_block: BlockHash,
+	old_block: BlockHash,
+	block_source: &mut B,
+	network: Network,
+	chain_listener: &mut CL,
+) {
+	if &old_block[..] == &[0; 32] { return; }
+	if old_block == new_block { return; }
+
+	let new_header = block_source
+		.get_header(&new_block, None).await.unwrap()
+		.validate(new_block).unwrap();
+	let old_header = block_source
+		.get_header(&old_block, None).await.unwrap()
+		.validate(old_block).unwrap();
+	let mut chain_poller = poll::ChainPoller::new(block_source as &mut dyn BlockSource, network);
+	let mut chain_notifier = ChainNotifier { header_cache: UnboundedCache::new() };
+	chain_notifier.sync_listener(new_header, &old_header, &mut chain_poller, chain_listener).await.unwrap();
 }
 
 /// The `Cache` trait defines behavior for managing a block header cache, where block headers are
