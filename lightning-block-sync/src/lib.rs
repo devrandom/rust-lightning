@@ -299,14 +299,6 @@ struct ChainNotifier<C: Cache> {
 	header_cache: C,
 }
 
-/// Steps outlining changes needed to be made to the chain in order to transform it from having one
-/// chain tip to another.
-enum ForkStep {
-	ForkPoint(ValidatedBlockHeader),
-	DisconnectBlock(ValidatedBlockHeader),
-	ConnectBlock(ValidatedBlockHeader),
-}
-
 impl<C: Cache> ChainNotifier<C> {
 	/// Finds the fork point between `new_header` and `old_header`, disconnecting blocks from
 	/// `old_header` to get to that point and then connecting blocks until `new_header`.
@@ -322,80 +314,56 @@ impl<C: Cache> ChainNotifier<C> {
 		chain_poller: &mut P,
 		chain_listener: &mut L,
 	) -> Result<(), (BlockSourceError, Option<ValidatedBlockHeader>)> {
-		let mut events = self.find_fork(new_header, old_header, chain_poller).await.map_err(|e| (e, None))?;
+		let (mut disconnects, mut connects) = self.find_fork(new_header, old_header, chain_poller).await.map_err(|e| (e, None))?;
 
-		let mut last_disconnect_tip = None;
-		let mut new_tip = None;
-		for event in events.iter() {
-			match &event {
-				&ForkStep::DisconnectBlock(ref header) => {
-					println!("Disconnecting block {}", header.block_hash);
-					if let Some(cached_header) = self.header_cache.remove(&header.block_hash) {
-						assert_eq!(cached_header, *header);
-					}
-					chain_listener.block_disconnected(&header.header, header.height);
-					last_disconnect_tip = Some(header.header.prev_blockhash);
-				},
-				&ForkStep::ForkPoint(ref header) => {
-					new_tip = Some(*header);
-				},
-				_ => {},
+		let mut new_tip = *old_header;
+		for header in disconnects.drain(..) {
+			println!("Disconnecting block {}", header.block_hash);
+			if let Some(cached_header) = self.header_cache.remove(&header.block_hash) {
+				assert_eq!(cached_header, header);
 			}
+			chain_listener.block_disconnected(&header.header, header.height);
+			new_tip = header;
 		}
 
-		// If blocks were disconnected, new blocks will connect starting from the fork point.
-		// Otherwise, there was no fork, so new blocks connect starting from the old tip.
-		assert_eq!(last_disconnect_tip.is_some(), new_tip.is_some());
-		if let &Some(ref tip_header) = &new_tip {
-			debug_assert_eq!(tip_header.header.block_hash(), *last_disconnect_tip.as_ref().unwrap());
-		} else {
-			new_tip = Some(*old_header);
-		}
+		for header in connects.drain(..).rev() {
+			let block = chain_poller
+				.fetch_block(&header).await
+				.or_else(|e| Err((e, Some(new_tip))))?;
+			debug_assert_eq!(block.block_hash, header.block_hash);
 
-		for event in events.drain(..).rev() {
-			if let ForkStep::ConnectBlock(header) = event {
-				let block = chain_poller
-					.fetch_block(&header).await
-					.or_else(|e| Err((e, new_tip)))?;
-				debug_assert_eq!(block.block_hash, header.block_hash);
-
-				println!("Connecting block {}", header.block_hash);
-				self.header_cache.insert(header.block_hash, header);
-				chain_listener.block_connected(&block, header.height);
-				new_tip = Some(header);
-			}
+			println!("Connecting block {}", header.block_hash);
+			self.header_cache.insert(header.block_hash, header);
+			chain_listener.block_connected(&block, header.height);
+			new_tip = header;
 		}
 		Ok(())
 	}
 
 	/// Walks backwards from `current_header` and `prev_header`, finding the common ancestor.
 	/// Returns the steps needed to produce the chain with `current_header` as its tip from the
-	/// chain with `prev_header` as its tip. There is no ordering guarantee between different
-	/// `ForkStep` types, but `DisconnectBlock` and `ConnectBlock` are each returned in
-	/// height-descending order.
+	/// chain with `prev_header` as its tip. The steps are returned as a two vectors: the
+	/// blocks to be disconnected and the blocks to be connected.  Both vectors are in descending
+	/// height order.
 	async fn find_fork<P: Poll>(
 		&self,
 		current_header: ValidatedBlockHeader,
 		prev_header: &ValidatedBlockHeader,
 		chain_poller: &mut P,
-	) -> BlockSourceResult<Vec<ForkStep>> {
-		let mut steps = Vec::new();
+	) -> BlockSourceResult<(Vec<ValidatedBlockHeader>, Vec<ValidatedBlockHeader>)> {
 		let mut current = current_header;
 		let mut previous = *prev_header;
+		let mut disconnect_steps = Vec::new();
+		let mut connect_steps = Vec::new();
 		loop {
-			// Found the parent block.
-			if current.height == previous.height + 1 &&
-					current.header.prev_blockhash == previous.block_hash {
-				steps.push(ForkStep::ConnectBlock(current));
-				break;
+			// We walked back all the way to genesis, we must be polling a foreign chain
+			// TODO make the min height configurable, so we don't take a long time to detect this
+			if previous.height == 0 {
+				return Err(BlockSourceError::persistent("genesis block reached"));
 			}
 
-			// Found a chain fork.
-			if current.header.prev_blockhash == previous.header.prev_blockhash {
-				let fork_point = self.look_up_previous_header(chain_poller, &previous).await?;
-				steps.push(ForkStep::DisconnectBlock(previous));
-				steps.push(ForkStep::ConnectBlock(current));
-				steps.push(ForkStep::ForkPoint(fork_point));
+			// At a common ancestor, done
+			if current.block_hash == previous.block_hash {
 				break;
 			}
 
@@ -404,16 +372,16 @@ impl<C: Cache> ChainNotifier<C> {
 			let current_height = current.height;
 			let previous_height = previous.height;
 			if current_height <= previous_height {
-				steps.push(ForkStep::DisconnectBlock(previous));
+				disconnect_steps.push(previous);
 				previous = self.look_up_previous_header(chain_poller, &previous).await?;
 			}
 			if current_height >= previous_height {
-				steps.push(ForkStep::ConnectBlock(current));
+				connect_steps.push(current);
 				current = self.look_up_previous_header(chain_poller, &current).await?;
 			}
 		}
 
-		Ok(steps)
+		Ok((disconnect_steps, connect_steps))
 	}
 
 	/// Returns the previous header for the given header, either by looking it up in the cache or
